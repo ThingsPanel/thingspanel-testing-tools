@@ -12,7 +12,7 @@ import (
 )
 
 // MonitorLogs 监控数据库写入状态和对比已发送数据点数
-func MonitorLogs(initDone chan<- struct{}) {
+func MonitorLogs(initDone chan<- struct{}, firstSendTime *atomic.Value) {
 	// 连接数据库
 	connStr := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s",
 		AppConfig.Database.User,
@@ -70,7 +70,7 @@ func MonitorLogs(initDone chan<- struct{}) {
 	ticker := time.NewTicker(AppConfig.Monitor.LogInterval)
 	defer ticker.Stop()
 
-	startTime := time.Now()
+	startTime := time.Now() // 保留这个变量作为后备
 
 	for {
 		<-ticker.C
@@ -90,15 +90,34 @@ func MonitorLogs(initDone chan<- struct{}) {
 		}
 
 		dbDiff := currentDBCount - lastDBCount
-		elapsedTime := time.Since(startTime)
+
+		// 使用第一次发送数据的时间作为计时起点（如有）
+		var elapsedTime time.Duration
+		firstTime := firstSendTime.Load()
+		if firstTime != nil && firstTime.(*time.Time) != nil {
+			elapsedTime = time.Since(*firstTime.(*time.Time))
+		} else {
+			// 如果尚未开始发送，则使用监控模块启动时间
+			elapsedTime = time.Since(startTime)
+		}
 
 		// 计算统计信息
 		sentRate := float64(sentDiff) / AppConfig.Monitor.LogInterval.Seconds()
 		msgRate := float64(msgDiff) / AppConfig.Monitor.LogInterval.Seconds()
 		dbRate := float64(dbDiff) / AppConfig.Monitor.LogInterval.Seconds()
-		totalSentRate := float64(currentSentCount) / elapsedTime.Seconds()
-		totalMsgRate := float64(currentMsgCount) / elapsedTime.Seconds()
-		totalDBRate := float64(currentDBCount-initialCount) / elapsedTime.Seconds()
+
+		// 使用从第一次发送开始的时间计算总平均速率
+		var totalSentRate, totalMsgRate, totalDBRate float64
+		if firstTime != nil && firstTime.(*time.Time) != nil && elapsedTime.Seconds() > 0 {
+			totalSentRate = float64(currentSentCount) / elapsedTime.Seconds()
+			totalMsgRate = float64(currentMsgCount) / elapsedTime.Seconds()
+			totalDBRate = float64(currentDBCount-initialCount) / elapsedTime.Seconds()
+		} else {
+			// 如果尚未开始发送，则速率为0
+			totalSentRate = 0
+			totalMsgRate = 0
+			totalDBRate = 0
+		}
 
 		// 计算写入成功率
 		successRate := 0.0

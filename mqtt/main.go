@@ -27,6 +27,9 @@ var (
 	msgCount   uint64        // 已发送的消息数
 	exitCount  uint64        // 已退出的goroutine数
 	startChan  chan struct{} // 同步开始信号
+
+	// 添加第一次发送数据的时间记录
+	firstSendTime atomic.Value // 记录第一次发送数据的时间点
 )
 
 // 命令行参数定义(保留以支持命令行配置)
@@ -77,6 +80,9 @@ func main() {
 	// 初始化通道
 	startChan = make(chan struct{})
 
+	// 初始化firstSendTime为nil表示尚未发送数据
+	firstSendTime.Store((*time.Time)(nil))
+
 	// 创建上下文，用于控制所有设备goroutine的生命周期
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // 确保在main函数退出时取消所有goroutine
@@ -85,7 +91,7 @@ func main() {
 	monitorInitDone := make(chan struct{})
 	go func() {
 		// 这里启动监控模块，并在监控初始化完成后发送信号
-		MonitorLogs(monitorInitDone)
+		MonitorLogs(monitorInitDone, &firstSendTime)
 	}()
 
 	// 等待监控初始化完成或超时
@@ -114,6 +120,7 @@ func main() {
 
 	// 等待设备连接完成
 	time.Sleep(AppConfig.Test.ConnectWaitTime)
+
 	connectedDevices := atomic.LoadUint64(&successNum)
 	log.Printf("成功连接设备数: %d (%.1f%%)", connectedDevices, float64(connectedDevices)*100/float64(AppConfig.Device.ClientNumber))
 
@@ -124,7 +131,7 @@ func main() {
 		return
 	}
 
-	// 开始性能测试
+	// 创建测试开始时间变量，但实际值在第一次发送时设置
 	testStartTime := time.Now()
 
 	// 主测试循环
@@ -132,20 +139,34 @@ func main() {
 		// 触发所有设备同时发送数据
 		close(startChan)
 
+		// 如果是第一次发送数据，记录时间
+		if cycle == 1 {
+			now := time.Now()
+			firstSendTime.Store(&now)
+			testStartTime = now // 同步更新testStartTime
+		}
+
 		// 创建新的触发通道，用于下一轮测试
 		startChan = make(chan struct{})
 
 		// 等待一段时间再进行下一轮测试
-		time.Sleep(AppConfig.Test.DataInterval)
+		//time.Sleep(AppConfig.Test.DataInterval)
+		// 使用更精确的时间控制
+		nextCycle := time.Now().Add(AppConfig.Test.DataInterval)
+		time.Sleep(time.Until(nextCycle))
 
-		currentDataCount := atomic.LoadUint64(&dataCount)
-		currentMsgCount := atomic.LoadUint64(&msgCount)
-		pointsPerSecond := float64(currentDataCount) / time.Since(testStartTime).Seconds()
-		msgsPerSecond := float64(currentMsgCount) / time.Since(testStartTime).Seconds()
+		if AppConfig.Monitor.LogCycle {
+			currentDataCount := atomic.LoadUint64(&dataCount)
+			currentMsgCount := atomic.LoadUint64(&msgCount)
 
-		log.Printf("循环 %d/%d: 已发送数据点数: %d (%.1f点/秒), 消息数: %d (%.1f消息/秒)",
-			cycle, AppConfig.Test.CycleCount, currentDataCount, pointsPerSecond,
-			currentMsgCount, msgsPerSecond)
+			// 从第一次发送开始计算速率
+			pointsPerSecond := float64(currentDataCount) / time.Since(testStartTime).Seconds()
+			msgsPerSecond := float64(currentMsgCount) / time.Since(testStartTime).Seconds()
+
+			log.Printf("循环 %d/%d: 已发送数据点数: %d (%.1f点/秒), 消息数: %d (%.1f消息/秒)",
+				cycle, AppConfig.Test.CycleCount, currentDataCount, pointsPerSecond,
+				currentMsgCount, msgsPerSecond)
+		}
 	}
 
 	// 测试完成，关闭所有设备连接
@@ -161,28 +182,14 @@ func main() {
 	finalMsgCount := atomic.LoadUint64(&msgCount)
 	finalExitCount := atomic.LoadUint64(&exitCount)
 
-	// 打印详细的测试报告
-	log.Println("\n========== 测试报告 ==========")
+	// 打印简要测试总结
+	log.Println("\n========== 测试完成 ==========")
 	log.Printf("测试总耗时: %v", testDuration)
 	log.Printf("测试循环次数: %d", AppConfig.Test.CycleCount)
 	log.Printf("已退出设备数: %d (%.1f%%)", finalExitCount, float64(finalExitCount)*100/float64(AppConfig.Device.ClientNumber))
-	log.Printf("每条消息数据点数: %d", AppConfig.Data.DataPointCount)
 	log.Printf("总发送数据点数: %d", finalDataCount)
 	log.Printf("总发送消息数: %d", finalMsgCount)
-	log.Printf("平均点吞吐量: %.2f 点/秒", float64(finalDataCount)/testDuration.Seconds())
-
-	if finalDataCount > 0 && finalMsgCount > 0 {
-		log.Printf("平均每个数据点耗时: %.3f 毫秒", testDuration.Seconds()*1000/float64(finalDataCount))
-		log.Printf("平均消息吞吐量: %.2f 消息/秒", float64(finalMsgCount)/testDuration.Seconds())
-		log.Printf("平均每条消息耗时: %.3f 毫秒", testDuration.Seconds()*1000/float64(finalMsgCount))
-
-		// 计算实际的平均每条消息数据点数
-		avgPointsPerMsg := float64(finalDataCount) / float64(finalMsgCount)
-		log.Printf("实际平均每条消息数据点数: %.2f", avgPointsPerMsg)
-	}
 	log.Println("===============================")
-
-	// 测试完成后，提示用户按键继续，监控线程会继续运行
 	log.Println("\n测试已完成。监控线程仍在运行，可以继续观察数据入库情况。")
 	log.Println("按 Enter 键退出程序...")
 

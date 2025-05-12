@@ -44,6 +44,7 @@ type Config struct {
 
 	Monitor struct {
 		LogInterval time.Duration `yaml:"log_interval"` // 日志输出间隔
+		LogCycle    bool          `yaml:"log_cycle"`    // 是否输出循环日志
 	} `yaml:"monitor"`
 }
 
@@ -64,6 +65,7 @@ var (
 
 // 监控相关命令行参数
 var logInterval = flag.Duration("log-interval", 0, "日志输出间隔")
+var logCycle = flag.Bool("log-cycle", true, "是否输出循环日志")
 
 // 数据点配置
 var dataPointCount = flag.Int("data-points", 0, "每条消息包含的数据点数量")
@@ -110,6 +112,8 @@ func LoadConfig() {
 		AppConfig.Database.Host, AppConfig.Database.User, AppConfig.Database.Name)
 	log.Printf("- 监控配置: 日志间隔=%v",
 		AppConfig.Monitor.LogInterval)
+	log.Printf("- 监控配置: 循环日志=%v",
+		AppConfig.Monitor.LogCycle)
 }
 
 // overrideConfigWithFlags 使用命令行参数覆盖配置文件
@@ -175,5 +179,9 @@ func overrideConfigWithFlags() {
 	// 监控配置
 	if *logInterval > 0 {
 		AppConfig.Monitor.LogInterval = *logInterval
+	}
+
+	if logCycle != nil {
+		AppConfig.Monitor.LogCycle = *logCycle
 	}
 }

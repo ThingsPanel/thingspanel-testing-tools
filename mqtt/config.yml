@@ -32,3 +32,5 @@ database:
 # 监控配置
 monitor:
   log_interval: 10s             # 日志输出间隔
+  # 是否输出循环日志
+  log_cycle: false
