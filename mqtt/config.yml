@@ -1,0 +1,33 @@
+# 设备相关配置
+device:
+  token_file: "../create_device/device_username.txt"  # 设备token文件路径
+  client_number: 5                                     # 模拟连接的设备数量
+
+# MQTT相关配置
+mqtt:
+  server: "127.0.0.1:1883"  # MQTT服务器地址
+  qos: 0                        # MQTT服务质量(0,1,2)
+  topic: "devices/telemetry"    # 发布主题
+
+# 测试参数配置
+test:
+  data_interval: 100ms          # 数据上报间隔时间
+  cycle_count: 200              # 测试循环次数
+  connect_wait_time: 3s         # 连接等待时间,启动后等待多久开始发数据
+
+# 数据参数
+data:
+  min_value: 1.0                # 传感器数据最小值
+  max_value: 10.0               # 传感器数据最大值
+
+# 数据库配置
+database:
+  host: "127.0.0.1:5432"    # 数据库服务器地址和端口
+  user: "postgres"              # 数据库用户名
+  password: "ThingsPanel2023"   # 数据库密码
+  name: "thingspanel"              # 数据库名称
+  ssl_mode: "disable"           # 数据库SSL模式
+
+# 监控配置
+monitor:
+  log_interval: 10s             # 日志输出间隔
