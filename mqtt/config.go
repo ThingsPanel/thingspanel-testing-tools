@@ -29,8 +29,9 @@ type Config struct {
 	} `yaml:"test"`
 
 	Data struct {
-		MinValue float64 `yaml:"min_value"` // 传感器数据最小值
-		MaxValue float64 `yaml:"max_value"` // 传感器数据最大值
+		MinValue       float64 `yaml:"min_value"`        // 传感器数据最小值
+		MaxValue       float64 `yaml:"max_value"`        // 传感器数据最大值
+		DataPointCount int     `yaml:"data_point_count"` // 每条消息包含的数据点数量
 	} `yaml:"data"`
 
 	Database struct {
@@ -64,6 +65,9 @@ var (
 // 监控相关命令行参数
 var logInterval = flag.Duration("log-interval", 0, "日志输出间隔")
 
+// 数据点配置
+var dataPointCount = flag.Int("data-points", 0, "每条消息包含的数据点数量")
+
 // LoadConfig 加载配置
 func LoadConfig() {
 	// 解析命令行参数
@@ -84,6 +88,14 @@ func LoadConfig() {
 	// 命令行参数覆盖配置文件
 	overrideConfigWithFlags()
 
+	// 设置默认值（如果未指定）
+	if AppConfig.Data.DataPointCount <= 0 {
+		AppConfig.Data.DataPointCount = 10 // 默认10个数据点
+		log.Printf("数据点数量未指定，使用默认值: %d", AppConfig.Data.DataPointCount)
+	} else {
+		log.Printf("使用配置的数据点数量: %d", AppConfig.Data.DataPointCount)
+	}
+
 	// 输出最终配置
 	log.Println("当前配置:")
 	log.Printf("- 设备配置: 文件=%s, 数量=%d",
@@ -92,8 +104,8 @@ func LoadConfig() {
 		AppConfig.MQTT.Server, AppConfig.MQTT.QoS, AppConfig.MQTT.Topic)
 	log.Printf("- 测试配置: 间隔=%v, 循环=%d, 等待=%v",
 		AppConfig.Test.DataInterval, AppConfig.Test.CycleCount, AppConfig.Test.ConnectWaitTime)
-	log.Printf("- 数据配置: 最小值=%.1f, 最大值=%.1f",
-		AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
+	log.Printf("- 数据配置: 最小值=%.1f, 最大值=%.1f, 数据点数=%d",
+		AppConfig.Data.MinValue, AppConfig.Data.MaxValue, AppConfig.Data.DataPointCount)
 	log.Printf("- 数据库配置: 主机=%s, 用户=%s, 数据库=%s",
 		AppConfig.Database.Host, AppConfig.Database.User, AppConfig.Database.Name)
 	log.Printf("- 监控配置: 日志间隔=%v",
@@ -138,6 +150,9 @@ func overrideConfigWithFlags() {
 	}
 	if *maxValue > 0 {
 		AppConfig.Data.MaxValue = *maxValue
+	}
+	if *dataPointCount > 0 {
+		AppConfig.Data.DataPointCount = *dataPointCount
 	}
 
 	// 数据库配置

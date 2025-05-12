@@ -1,7 +1,7 @@
 # 设备相关配置
 device:
   token_file: "../create_device/device_username.txt"  # 设备token文件路径
-  client_number: 5                                     # 模拟连接的设备数量
+  client_number: 10                                    # 模拟连接的设备数量
 
 # MQTT相关配置
 mqtt:
@@ -11,14 +11,15 @@ mqtt:
 
 # 测试参数配置
 test:
-  data_interval: 100ms          # 数据上报间隔时间
-  cycle_count: 200              # 测试循环次数
+  data_interval: 10ms          # 数据上报间隔时间
+  cycle_count: 200             # 测试循环次数
   connect_wait_time: 3s         # 连接等待时间,启动后等待多久开始发数据
 
 # 数据参数
 data:
   min_value: 1.0                # 传感器数据最小值
   max_value: 10.0               # 传感器数据最大值
+  data_point_count: 1          # 每条消息包含的数据点数量
 
 # 数据库配置
 database:

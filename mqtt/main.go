@@ -17,24 +17,14 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// SensorData 表示设备上报的传感器数据结构
-type SensorData struct {
-	Hum1  float64 `json:"hum1" fake:"skip"`
-	Hum2  float64 `json:"hum2" fake:"skip"`
-	Hum3  float64 `json:"hum3" fake:"skip"`
-	Hum4  float64 `json:"hum4" fake:"skip"`
-	Hum5  float64 `json:"hum5" fake:"skip"`
-	Hum6  float64 `json:"hum6" fake:"skip"`
-	Hum7  float64 `json:"hum7" fake:"skip"`
-	Hum8  float64 `json:"hum8" fake:"skip"`
-	Hum9  float64 `json:"hum9" fake:"skip"`
-	Hum10 float64 `json:"hum10" fake:"skip"`
-}
+// SensorData 表示设备上报的传感器数据结构（使用动态map）
+type SensorData map[string]float64
 
 // 全局计数变量
 var (
 	successNum uint64        // 成功连接的设备数
 	dataCount  uint64        // 已发送的数据点数
+	msgCount   uint64        // 已发送的消息数
 	exitCount  uint64        // 已退出的goroutine数
 	startChan  chan struct{} // 同步开始信号
 )
@@ -91,8 +81,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // 确保在main函数退出时取消所有goroutine
 
-	// 启动监控日志
-	go MonitorLogs()
+	// 启动监控日志，并等待其初始化完成
+	monitorInitDone := make(chan struct{})
+	go func() {
+		// 这里启动监控模块，并在监控初始化完成后发送信号
+		MonitorLogs(monitorInitDone)
+	}()
+
+	// 等待监控初始化完成或超时
+	select {
+	case <-monitorInitDone:
+		log.Println("监控模块初始化完成，开始进行测试...")
+	case <-time.After(10 * time.Second):
+		log.Println("警告: 监控模块初始化超时，继续进行测试...")
+	}
 
 	// 创建等待组，用于等待所有设备goroutine完成
 	var wg sync.WaitGroup
@@ -137,10 +139,13 @@ func main() {
 		time.Sleep(AppConfig.Test.DataInterval)
 
 		currentDataCount := atomic.LoadUint64(&dataCount)
+		currentMsgCount := atomic.LoadUint64(&msgCount)
 		pointsPerSecond := float64(currentDataCount) / time.Since(testStartTime).Seconds()
+		msgsPerSecond := float64(currentMsgCount) / time.Since(testStartTime).Seconds()
 
-		log.Printf("循环 %d/%d: 已发送数据点数: %d (%.1f点/秒)",
-			cycle, AppConfig.Test.CycleCount, currentDataCount, pointsPerSecond)
+		log.Printf("循环 %d/%d: 已发送数据点数: %d (%.1f点/秒), 消息数: %d (%.1f消息/秒)",
+			cycle, AppConfig.Test.CycleCount, currentDataCount, pointsPerSecond,
+			currentMsgCount, msgsPerSecond)
 	}
 
 	// 测试完成，关闭所有设备连接
@@ -153,6 +158,7 @@ func main() {
 
 	// 获取最终统计
 	finalDataCount := atomic.LoadUint64(&dataCount)
+	finalMsgCount := atomic.LoadUint64(&msgCount)
 	finalExitCount := atomic.LoadUint64(&exitCount)
 
 	// 打印详细的测试报告
@@ -160,12 +166,41 @@ func main() {
 	log.Printf("测试总耗时: %v", testDuration)
 	log.Printf("测试循环次数: %d", AppConfig.Test.CycleCount)
 	log.Printf("已退出设备数: %d (%.1f%%)", finalExitCount, float64(finalExitCount)*100/float64(AppConfig.Device.ClientNumber))
+	log.Printf("每条消息数据点数: %d", AppConfig.Data.DataPointCount)
 	log.Printf("总发送数据点数: %d", finalDataCount)
-	log.Printf("平均吞吐量: %.2f 点/秒", float64(finalDataCount)/testDuration.Seconds())
-	if finalDataCount > 0 {
-		log.Printf("每个数据点平均耗时: %.3f 毫秒", testDuration.Seconds()*1000/float64(finalDataCount))
+	log.Printf("总发送消息数: %d", finalMsgCount)
+	log.Printf("平均点吞吐量: %.2f 点/秒", float64(finalDataCount)/testDuration.Seconds())
+
+	if finalDataCount > 0 && finalMsgCount > 0 {
+		log.Printf("平均每个数据点耗时: %.3f 毫秒", testDuration.Seconds()*1000/float64(finalDataCount))
+		log.Printf("平均消息吞吐量: %.2f 消息/秒", float64(finalMsgCount)/testDuration.Seconds())
+		log.Printf("平均每条消息耗时: %.3f 毫秒", testDuration.Seconds()*1000/float64(finalMsgCount))
+
+		// 计算实际的平均每条消息数据点数
+		avgPointsPerMsg := float64(finalDataCount) / float64(finalMsgCount)
+		log.Printf("实际平均每条消息数据点数: %.2f", avgPointsPerMsg)
 	}
-	log.Println("==============================")
+	log.Println("===============================")
+
+	// 测试完成后，提示用户按键继续，监控线程会继续运行
+	log.Println("\n测试已完成。监控线程仍在运行，可以继续观察数据入库情况。")
+	log.Println("按 Enter 键退出程序...")
+
+	// 创建一个通道用于接收输入完成信号
+	inputDone := make(chan struct{})
+
+	// 启动一个goroutine等待用户输入
+	go func() {
+		// 读取一行输入(等待按Enter键)
+		reader := bufio.NewReader(os.Stdin)
+		_, _ = reader.ReadString('\n')
+		close(inputDone)
+	}()
+
+	// 等待用户输入或者CTRL+C信号
+	<-inputDone
+
+	log.Println("程序正在退出...")
 }
 
 // readFile 从指定的文件中读取每一行内容并返回字符串切片
@@ -226,7 +261,7 @@ func connectAndPublish(wg *sync.WaitGroup, ctx context.Context, username string)
 	defer client.Disconnect(200) // 确保在函数结束时断开连接
 
 	// 预生成传感器数据对象，避免频繁创建
-	sensorData := &SensorData{}
+	sensorData := make(SensorData)
 
 	// 主循环：等待触发信号并发送数据
 	for {
@@ -253,8 +288,9 @@ func connectAndPublish(wg *sync.WaitGroup, ctx context.Context, username string)
 			if token.Error() != nil {
 				log.Printf("发布消息失败: %v", token.Error())
 			} else {
-				// 每条消息包含10个数据点
-				atomic.AddUint64(&dataCount, 10)
+				// 每条消息包含配置的数据点数量
+				atomic.AddUint64(&dataCount, uint64(len(sensorData)))
+				atomic.AddUint64(&msgCount, 1)
 			}
 
 			// 让出CPU时间片，避免单个goroutine占用过多资源
@@ -264,15 +300,15 @@ func connectAndPublish(wg *sync.WaitGroup, ctx context.Context, username string)
 }
 
 // updateSensorData 更新传感器数据对象的值
-func updateSensorData(data *SensorData) {
-	data.Hum1 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum2 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum3 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum4 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum5 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum6 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum7 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum8 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum9 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
-	data.Hum10 = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
+func updateSensorData(data SensorData) {
+	// 清空旧数据
+	for k := range data {
+		delete(data, k)
+	}
+
+	// 根据配置生成指定数量的数据点
+	for i := 1; i <= AppConfig.Data.DataPointCount; i++ {
+		key := fmt.Sprintf("hum%d", i)
+		data[key] = gofakeit.Float64Range(AppConfig.Data.MinValue, AppConfig.Data.MaxValue)
+	}
 }
