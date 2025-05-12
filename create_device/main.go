@@ -19,10 +19,10 @@ import (
 // 配置选项，支持命令行参数覆盖
 var (
 	// 数据库配置
-	dbHost     = flag.String("db-host", "47.115.213.71:5432", "数据库服务器地址和端口")
+	dbHost     = flag.String("db-host", "127.0.0.1:5432", "数据库服务器地址和端口")
 	dbUser     = flag.String("db-user", "postgres", "数据库用户名")
 	dbPassword = flag.String("db-pass", "ThingsPanel2023", "数据库密码")
-	dbName     = flag.String("db-name", "irrigate", "数据库名称")
+	dbName     = flag.String("db-name", "thingspanel", "数据库名称")
 	dbSSLMode  = flag.String("db-ssl", "disable", "数据库SSL模式")
 
 	// 设备配置
