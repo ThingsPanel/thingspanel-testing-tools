@@ -133,9 +133,19 @@ func main() {
 
 	// 创建测试开始时间变量，但实际值在第一次发送时设置
 	testStartTime := time.Now()
+	nextSendTime := time.Now()
 
 	// 主测试循环
 	for cycle := 1; cycle <= AppConfig.Test.CycleCount; cycle++ {
+		// 计算此次发送的目标时间
+		nextSendTime = nextSendTime.Add(AppConfig.Test.DataInterval)
+
+		// 计算需要等待的时间
+		waitTime := time.Until(nextSendTime)
+		if waitTime > 0 {
+			time.Sleep(waitTime)
+		}
+
 		// 触发所有设备同时发送数据
 		close(startChan)
 
@@ -148,12 +158,6 @@ func main() {
 
 		// 创建新的触发通道，用于下一轮测试
 		startChan = make(chan struct{})
-
-		// 等待一段时间再进行下一轮测试
-		//time.Sleep(AppConfig.Test.DataInterval)
-		// 使用更精确的时间控制
-		nextCycle := time.Now().Add(AppConfig.Test.DataInterval)
-		time.Sleep(time.Until(nextCycle))
 
 		if AppConfig.Monitor.LogCycle {
 			currentDataCount := atomic.LoadUint64(&dataCount)
